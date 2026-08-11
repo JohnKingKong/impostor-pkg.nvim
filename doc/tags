@@ -1,0 +1,8 @@
+:Impostor	impostor-pkg.txt	/*:Impostor*
+:ImpostorCheck	impostor-pkg.txt	/*:ImpostorCheck*
+impostor-pkg-commands	impostor-pkg.txt	/*impostor-pkg-commands*
+impostor-pkg-configuration	impostor-pkg.txt	/*impostor-pkg-configuration*
+impostor-pkg-contents	impostor-pkg.txt	/*impostor-pkg-contents*
+impostor-pkg-introduction	impostor-pkg.txt	/*impostor-pkg-introduction*
+impostor-pkg-setup	impostor-pkg.txt	/*impostor-pkg-setup*
+impostor-pkg.txt	impostor-pkg.txt	/*impostor-pkg.txt*

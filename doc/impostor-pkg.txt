@@ -1,0 +1,49 @@
+*impostor-pkg.txt*    Flag malicious/risky npm, yarn, and pnpm packages
+
+==============================================================================
+CONTENTS                                                *impostor-pkg-contents*
+
+    1. Introduction .......... |impostor-pkg-introduction|
+    2. Setup ................. |impostor-pkg-setup|
+    3. Commands .............. |impostor-pkg-commands|
+    4. Configuration ......... |impostor-pkg-configuration|
+
+==============================================================================
+1. Introduction                                     *impostor-pkg-introduction*
+
+impostor-pkg.nvim flags malicious, typosquatted, or otherwise risky
+npm/yarn/pnpm packages — the Neovim equivalent of WebStorm's package risk
+warnings. It uses Socket CLI when installed and authenticated
+(`socket login`), and falls back to the project's native `npm audit` /
+`yarn audit` / `pnpm audit` otherwise.
+
+==============================================================================
+2. Setup                                                   *impostor-pkg-setup*
+
+>lua
+    require("impostor-pkg").setup({})
+<
+
+==============================================================================
+3. Commands                                              *impostor-pkg-commands*
+
+:ImpostorCheck                                                *:ImpostorCheck*
+:Impostor                                                          *:Impostor*
+    Scan the current project's dependencies for malicious or risky
+    packages. Also runs automatically on saving a lockfile
+    (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`) unless
+    |impostor-pkg-configuration| disables it.
+
+==============================================================================
+4. Configuration                                    *impostor-pkg-configuration*
+
+>lua
+    require("impostor-pkg").setup({
+      backend = "auto",       -- "auto" | "socket" | "audit"
+      auto_scan_on_save = true,
+      ignore = {},             -- package names to always suppress
+      min_severity = "low",    -- "low" | "moderate" | "high" | "critical"
+    })
+<
+
+ vim:tw=78:ts=8:ft=help:norl:
