@@ -45,6 +45,65 @@ describe("impostor-pkg.ui", function()
     end)
   end)
 
+  describe("notify_preinstall", function()
+    it("warns with the unchecked dependency names when present", function()
+      local captured
+      local original_notify = vim.notify
+      vim.notify = function(msg, level)
+        captured = { msg = msg, level = level }
+      end
+
+      ui.notify_preinstall({
+        ok = true,
+        findings = {},
+        pending = { { name = "new-dep", version = "^1.0.0" } },
+        unchecked = { { name = "new-dep", version = "^1.0.0" } },
+      })
+
+      vim.notify = original_notify
+      assert.is_not_nil(captured)
+      assert.matches("new%-dep", captured.msg)
+      assert.are.equal(vim.log.levels.WARN, captured.level)
+    end)
+
+    it("warns with a severity breakdown when findings are present", function()
+      local captured
+      local original_notify = vim.notify
+      vim.notify = function(msg, level)
+        captured = { msg = msg, level = level }
+      end
+
+      ui.notify_preinstall({
+        ok = true,
+        findings = { { name = "new-dep", severity = "high", backend = "audit", reason = "known vulnerability" } },
+        pending = { { name = "new-dep", version = "^1.0.0" } },
+      })
+
+      vim.notify = original_notify
+      assert.is_not_nil(captured)
+      assert.matches("1 high", captured.msg)
+      assert.are.equal(vim.log.levels.WARN, captured.level)
+    end)
+
+    it("notifies cleanly when pending deps were checked and nothing was flagged", function()
+      local captured
+      local original_notify = vim.notify
+      vim.notify = function(msg, level)
+        captured = { msg = msg, level = level }
+      end
+
+      ui.notify_preinstall({
+        ok = true,
+        findings = {},
+        pending = { { name = "new-dep", version = "^1.0.0" } },
+      })
+
+      vim.notify = original_notify
+      assert.is_not_nil(captured)
+      assert.matches("no issues found", captured.msg)
+    end)
+  end)
+
   describe("show", function()
     it("does not error and opens no window for an empty findings list", function()
       local win_count_before = #vim.api.nvim_list_wins()
