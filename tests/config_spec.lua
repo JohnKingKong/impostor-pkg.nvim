@@ -44,6 +44,35 @@ describe("impostor-pkg.config", function()
     end)
   end)
 
+  it("returns sane defaults for the pre-install options", function()
+    local resolved = config.get()
+    assert.is_true(resolved.auto_scan_on_package_json_save)
+    assert.are.equal("high", resolved.confirm_threshold)
+  end)
+
+  it("overrides confirm_threshold when a valid value is provided", function()
+    config.setup({ confirm_threshold = "critical" })
+    assert.are.equal("critical", config.get().confirm_threshold)
+  end)
+
+  it("errors when confirm_threshold is not a known severity", function()
+    assert.has_error(function()
+      config.setup({ confirm_threshold = "meh" })
+    end)
+  end)
+
+  it("errors when confirm_threshold is 'info' (info is a valid finding severity but not a valid config value)", function()
+    assert.has_error(function()
+      config.setup({ confirm_threshold = "info" })
+    end)
+  end)
+
+  it("errors when auto_scan_on_package_json_save is not a boolean", function()
+    assert.has_error(function()
+      config.setup({ auto_scan_on_package_json_save = "yes" })
+    end)
+  end)
+
   it("does not alias a user-supplied ignore table after setup()", function()
     local user_ignore = { "left-pad" }
     config.setup({ ignore = user_ignore })
