@@ -14,3 +14,9 @@ vim.api.nvim_create_user_command("Impostor", function()
 end, {
   desc = "Alias for :ImpostorCheck",
 })
+
+vim.api.nvim_create_user_command("ImpostorInstall", function()
+  require("impostor-pkg").install()
+end, {
+  desc = "Scan new package.json dependencies and install them with the project's package manager",
+})
