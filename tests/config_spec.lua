@@ -61,11 +61,14 @@ describe("impostor-pkg.config", function()
     end)
   end)
 
-  it("errors when confirm_threshold is 'info' (info is a valid finding severity but not a valid config value)", function()
-    assert.has_error(function()
-      config.setup({ confirm_threshold = "info" })
-    end)
-  end)
+  it(
+    "errors when confirm_threshold is 'info' (info is a valid finding severity but not a valid config value)",
+    function()
+      assert.has_error(function()
+        config.setup({ confirm_threshold = "info" })
+      end)
+    end
+  )
 
   it("errors when auto_scan_on_package_json_save is not a boolean", function()
     assert.has_error(function()

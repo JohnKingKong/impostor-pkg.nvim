@@ -229,8 +229,11 @@ local function run_preinstall_audit(project, pending, pending_names, callback)
         return
       end
 
-      local audit_ok, audit_err =
-        pcall(system_fn, audit_backend.command_for(project.package_manager), { text = true }, function(audit_completed)
+      local audit_ok, audit_err = pcall(
+        system_fn,
+        audit_backend.command_for(project.package_manager),
+        { text = true },
+        function(audit_completed)
           vim.schedule(function()
             local findings = audit_backend.parse(project.package_manager, audit_completed.stdout or "")
             callback({
@@ -240,7 +243,8 @@ local function run_preinstall_audit(project, pending, pending_names, callback)
               pending = pending,
             })
           end)
-        end)
+        end
+      )
 
       if not audit_ok then
         callback({

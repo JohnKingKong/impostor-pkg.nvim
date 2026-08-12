@@ -64,7 +64,7 @@ end
 local function locked_lookup_from_text_lockfile(contents)
   return setmetatable({}, {
     __index = function(_, name)
-      local pattern = "^%s*\"?" .. escape_pattern(name) .. "@"
+      local pattern = '^%s*"?' .. escape_pattern(name) .. "@"
       for line in contents:gmatch("[^\r\n]+") do
         if line:match(pattern) then
           return true
