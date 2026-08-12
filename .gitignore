@@ -1,1 +1,3 @@
 .deps/
+.worktrees/
+.DS_Store
