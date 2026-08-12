@@ -130,6 +130,127 @@ describe("impostor-pkg.init", function()
       end, 5)
       preinstall.pending_dependencies = original_pending_dependencies
     end)
+
+    it("does not open a floating window even when new dependencies are flagged", function()
+      scanner._set_detect_fn(function()
+        return {
+          root = "/tmp/proj",
+          package_manager = "npm",
+          lockfile = "/tmp/proj/package-lock.json",
+          package_json = "/tmp/proj/package.json",
+        }
+      end)
+      local preinstall = require("impostor-pkg.preinstall")
+      local original_pending_dependencies = preinstall.pending_dependencies
+      preinstall.pending_dependencies = function()
+        return { { name = "new-dep", version = "^1.0.0" } }
+      end
+      config.setup({ backend = "audit" })
+      scanner._set_system_fn(function(cmd, _opts, on_exit)
+        if cmd[1] == "npm" and cmd[3] == "--package-lock-only" then
+          on_exit({ code = 0, stdout = "", stderr = "" })
+        else
+          on_exit({
+            code = 0,
+            stdout = vim.json.encode({
+              vulnerabilities = { ["new-dep"] = { name = "new-dep", severity = "high", via = {} } },
+            }),
+            stderr = "",
+          })
+        end
+      end)
+
+      local wins_before = #vim.api.nvim_list_wins()
+
+      local done = false
+      impostor_pkg.check_preinstall(function()
+        done = true
+      end)
+
+      vim.wait(200, function()
+        return done
+      end, 5)
+
+      assert.are.equal(wins_before, #vim.api.nvim_list_wins())
+      preinstall.pending_dependencies = original_pending_dependencies
+    end)
+  end)
+
+  describe("debounced_check_preinstall (passive package.json autocmd path)", function()
+    local preinstall = require("impostor-pkg.preinstall")
+    local original_pending_dependencies
+
+    before_each(function()
+      original_pending_dependencies = preinstall.pending_dependencies
+      scanner._set_detect_fn(function()
+        return {
+          root = "/tmp/proj",
+          package_manager = "npm",
+          lockfile = "/tmp/proj/package-lock.json",
+          package_json = "/tmp/proj/package.json",
+        }
+      end)
+      preinstall.pending_dependencies = function()
+        return { { name = "new-dep", version = "^1.0.0" } }
+      end
+      config.setup({ backend = "audit" })
+    end)
+
+    after_each(function()
+      preinstall.pending_dependencies = original_pending_dependencies
+    end)
+
+    it("coalesces rapid repeated invocations into a single scan", function()
+      local scan_starts = 0
+      scanner._set_system_fn(function(cmd, _opts, on_exit)
+        if cmd[1] == "npm" and cmd[3] == "--package-lock-only" then
+          scan_starts = scan_starts + 1
+          on_exit({ code = 0, stdout = "", stderr = "" })
+        else
+          on_exit({ code = 0, stdout = vim.json.encode({ vulnerabilities = {} }), stderr = "" })
+        end
+      end)
+
+      for _ = 1, 5 do
+        impostor_pkg._debounced_check_preinstall()
+      end
+
+      vim.wait(700, function()
+        return scan_starts > 0
+      end, 10)
+
+      assert.are.equal(1, scan_starts)
+    end)
+
+    it("does not start a second scan while one is still in flight", function()
+      local scan_starts = 0
+      local finish_first_scan
+
+      scanner._set_system_fn(function(cmd, _opts, on_exit)
+        if cmd[1] == "npm" and cmd[3] == "--package-lock-only" then
+          scan_starts = scan_starts + 1
+          finish_first_scan = on_exit -- don't call yet: simulate a slow, still-running scan
+        else
+          on_exit({ code = 0, stdout = vim.json.encode({ vulnerabilities = {} }), stderr = "" })
+        end
+      end)
+
+      impostor_pkg._debounced_check_preinstall()
+      vim.wait(700, function()
+        return scan_starts > 0
+      end, 10)
+      assert.are.equal(1, scan_starts)
+
+      -- Trigger another debounce window while the first scan is still in flight.
+      impostor_pkg._debounced_check_preinstall()
+      vim.wait(700, function()
+        return false
+      end, 10)
+
+      assert.are.equal(1, scan_starts)
+
+      finish_first_scan({ code = 0, stdout = "", stderr = "" })
+    end)
   end)
 
   describe("install", function()
@@ -299,6 +420,39 @@ describe("impostor-pkg.init", function()
       end, 5)
 
       assert.are.equal(1, confirm_calls)
+      assert.are.equal(0, #jobstart_calls)
+    end)
+
+    it("prompts before installing unchecked (yarn) dependencies and skips install on decline", function()
+      config.setup({ backend = "audit" })
+      scanner._set_detect_fn(function()
+        return {
+          root = "/tmp/proj",
+          package_manager = "yarn",
+          lockfile = "/tmp/proj/yarn.lock",
+          package_json = "/tmp/proj/package.json",
+        }
+      end)
+      preinstall.pending_dependencies = function()
+        return { { name = "new-dep", version = "^1.0.0" } }
+      end
+      local system_calls = 0
+      scanner._set_system_fn(function()
+        system_calls = system_calls + 1
+      end)
+      local confirm_calls = 0
+      impostor_pkg._set_confirm_fn(function()
+        confirm_calls = confirm_calls + 1
+        return 2 -- "No"
+      end)
+
+      impostor_pkg.install()
+      vim.wait(200, function()
+        return confirm_calls > 0
+      end, 5)
+
+      assert.are.equal(1, confirm_calls)
+      assert.are.equal(0, system_calls)
       assert.are.equal(0, #jobstart_calls)
     end)
   end)

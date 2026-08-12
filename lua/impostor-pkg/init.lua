@@ -69,25 +69,49 @@ function M.check(check_opts)
   end)
 end
 
-function M.check_preinstall()
+function M.check_preinstall(on_done)
+  on_done = on_done or function() end
+
   scanner.run_preinstall(function(result)
     if result.skipped then
+      on_done()
       return
     end
 
     if not result.ok then
       vim.notify(result.error, vim.log.levels.WARN)
+      on_done()
       return
     end
 
     ui.notify_preinstall(result)
-    ui.show(result.findings)
 
     if result.project then
       diagnostics.apply(result.project.package_json, result.findings)
     end
+
+    on_done()
   end)
 end
+
+local preinstall_debounce_id = 0
+local preinstall_scan_in_flight = false
+
+local function debounced_check_preinstall()
+  preinstall_debounce_id = preinstall_debounce_id + 1
+  local id = preinstall_debounce_id
+  vim.defer_fn(function()
+    if id ~= preinstall_debounce_id or preinstall_scan_in_flight then
+      return
+    end
+    preinstall_scan_in_flight = true
+    M.check_preinstall(function()
+      preinstall_scan_in_flight = false
+    end)
+  end, 500)
+end
+
+M._debounced_check_preinstall = debounced_check_preinstall
 
 local function run_install_terminal(project)
   local command = INSTALL_COMMANDS[project.package_manager]
@@ -119,22 +143,38 @@ function M.install()
     end
 
     local resolved = config.get()
-    local blocking = false
+    local blocking_severity = false
     for _, finding in ipairs(result.findings) do
       if config.severity_at_least(finding.severity, resolved.confirm_threshold) then
-        blocking = true
+        blocking_severity = true
         break
       end
     end
+    local blocking_unchecked = result.unchecked ~= nil and #result.unchecked > 0
 
-    if blocking then
-      local choice = confirm_fn(
-        "impostor-pkg: a flagged dependency meets or exceeds '"
+    if blocking_severity or blocking_unchecked then
+      local message
+      if blocking_severity and blocking_unchecked then
+        message = string.format(
+          "impostor-pkg: a flagged dependency meets or exceeds '%s' severity, and %d dependenc%s "
+            .. "could not be verified without Socket. Install anyway?",
+          resolved.confirm_threshold,
+          #result.unchecked,
+          #result.unchecked == 1 and "y" or "ies"
+        )
+      elseif blocking_unchecked then
+        message = string.format(
+          "impostor-pkg: %d new dependenc%s could not be verified without Socket. Install anyway?",
+          #result.unchecked,
+          #result.unchecked == 1 and "y" or "ies"
+        )
+      else
+        message = "impostor-pkg: a flagged dependency meets or exceeds '"
           .. resolved.confirm_threshold
-          .. "' severity. Install anyway?",
-        "&Yes\n&No",
-        2
-      )
+          .. "' severity. Install anyway?"
+      end
+
+      local choice = confirm_fn(message, "&Yes\n&No", 2)
       if choice ~= 1 then
         vim.notify("impostor-pkg: install cancelled", vim.log.levels.WARN)
         return
@@ -171,7 +211,7 @@ function M.setup(opts)
       group = AUGROUP,
       pattern = "*/package.json",
       callback = function()
-        M.check_preinstall()
+        debounced_check_preinstall()
       end,
       desc = "impostor-pkg: pre-install scan on package.json save",
     })
