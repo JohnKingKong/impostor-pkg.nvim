@@ -28,6 +28,34 @@ describe("impostor-pkg.init", function()
     end)
   end)
 
+  it("registers a VimEnter autocmd that triggers both checks when auto_scan_on_startup is enabled", function()
+    local detect_calls = 0
+    scanner._set_detect_fn(function()
+      detect_calls = detect_calls + 1
+      return nil
+    end)
+
+    impostor_pkg.setup({ auto_scan_on_startup = true })
+    vim.api.nvim_exec_autocmds("VimEnter", {})
+
+    -- M.check and M.check_preinstall both route through scanner's shared detect_fn, so a call
+    -- count of 2 is evidence both the post-install and pre-install checks fired on VimEnter.
+    assert.are.equal(2, detect_calls)
+  end)
+
+  it("does not scan on VimEnter when auto_scan_on_startup is disabled", function()
+    local detect_calls = 0
+    scanner._set_detect_fn(function()
+      detect_calls = detect_calls + 1
+      return nil
+    end)
+
+    impostor_pkg.setup({ auto_scan_on_startup = false })
+    vim.api.nvim_exec_autocmds("VimEnter", {})
+
+    assert.are.equal(0, detect_calls)
+  end)
+
   it("check() calls scanner.run and does not error when no project is found", function()
     scanner._set_detect_fn(function()
       return nil

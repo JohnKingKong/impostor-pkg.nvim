@@ -76,6 +76,22 @@ describe("impostor-pkg.config", function()
     end)
   end)
 
+  it("returns a sane default for auto_scan_on_startup", function()
+    local resolved = config.get()
+    assert.is_true(resolved.auto_scan_on_startup)
+  end)
+
+  it("overrides auto_scan_on_startup when a valid value is provided", function()
+    config.setup({ auto_scan_on_startup = false })
+    assert.is_false(config.get().auto_scan_on_startup)
+  end)
+
+  it("errors when auto_scan_on_startup is not a boolean", function()
+    assert.has_error(function()
+      config.setup({ auto_scan_on_startup = "yes" })
+    end)
+  end)
+
   it("does not alias a user-supplied ignore table after setup()", function()
     local user_ignore = { "left-pad" }
     config.setup({ ignore = user_ignore })

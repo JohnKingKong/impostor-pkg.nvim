@@ -216,6 +216,17 @@ function M.setup(opts)
       desc = "impostor-pkg: pre-install scan on package.json save",
     })
   end
+
+  if resolved.auto_scan_on_startup then
+    vim.api.nvim_create_autocmd("VimEnter", {
+      group = AUGROUP,
+      callback = function()
+        M.check({ force = false })
+        M.check_preinstall()
+      end,
+      desc = "impostor-pkg: scan on startup",
+    })
+  end
 end
 
 return M

@@ -10,6 +10,7 @@ M.defaults = {
   backend = "auto",
   auto_scan_on_save = true,
   auto_scan_on_package_json_save = true,
+  auto_scan_on_startup = true,
   ignore = {},
   min_severity = "low",
   confirm_threshold = "high",
@@ -70,11 +71,15 @@ function M.setup(opts)
   if opts.auto_scan_on_package_json_save ~= nil then
     validate_boolean_opt("auto_scan_on_package_json_save", opts.auto_scan_on_package_json_save)
   end
+  if opts.auto_scan_on_startup ~= nil then
+    validate_boolean_opt("auto_scan_on_startup", opts.auto_scan_on_startup)
+  end
 
   resolved = {
     backend = opts.backend or M.defaults.backend,
     auto_scan_on_save = opts.auto_scan_on_save,
     auto_scan_on_package_json_save = opts.auto_scan_on_package_json_save,
+    auto_scan_on_startup = opts.auto_scan_on_startup,
     ignore = opts.ignore and vim.deepcopy(opts.ignore) or vim.deepcopy(M.defaults.ignore),
     min_severity = opts.min_severity or M.defaults.min_severity,
     confirm_threshold = opts.confirm_threshold or M.defaults.confirm_threshold,
@@ -84,6 +89,9 @@ function M.setup(opts)
   end
   if resolved.auto_scan_on_package_json_save == nil then
     resolved.auto_scan_on_package_json_save = M.defaults.auto_scan_on_package_json_save
+  end
+  if resolved.auto_scan_on_startup == nil then
+    resolved.auto_scan_on_startup = M.defaults.auto_scan_on_startup
   end
 
   return resolved
