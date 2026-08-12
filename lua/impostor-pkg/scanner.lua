@@ -1,6 +1,7 @@
 local M = {}
 
 local detect = require("impostor-pkg.detect")
+local preinstall = require("impostor-pkg.preinstall")
 local audit_backend = require("impostor-pkg.backends.audit")
 local socket_backend = require("impostor-pkg.backends.socket")
 local config = require("impostor-pkg.config")
@@ -46,7 +47,7 @@ function M._reset()
   last_hash_by_lockfile = {}
 end
 
-local function pick_backend(_package_manager)
+function M.pick_backend(_package_manager)
   local resolved = config.get()
 
   if resolved.backend == "socket" then
@@ -95,7 +96,7 @@ function M.run(opts, callback)
     return
   end
 
-  local backend = pick_backend(project.package_manager)
+  local backend = M.pick_backend(project.package_manager)
 
   local available
   if backend.name == "socket" then
@@ -157,6 +158,132 @@ function M.run(opts, callback)
       project = project,
       error = "impostor-pkg: " .. backend.name .. " failed to start: " .. tostring(err),
     })
+  end
+end
+
+local function filter_to_pending(findings, pending_names)
+  local filtered = {}
+  for _, finding in ipairs(findings) do
+    if finding.name and pending_names[finding.name] then
+      table.insert(filtered, finding)
+    end
+  end
+  return filtered
+end
+
+local function run_preinstall_socket(project, pending, pending_names, callback)
+  if not socket_backend.is_available() then
+    callback({
+      ok = false,
+      project = project,
+      error = "impostor-pkg: socket is not available (CLI not found or not authenticated)",
+    })
+    return
+  end
+
+  local ok, err = pcall(system_fn, socket_backend.command_for(project.root), { text = true }, function(completed)
+    vim.schedule(function()
+      local findings = socket_backend.parse(completed.stdout or "")
+      callback({
+        ok = true,
+        project = project,
+        findings = apply_filters(filter_to_pending(findings, pending_names)),
+        pending = pending,
+      })
+    end)
+  end)
+
+  if not ok then
+    callback({ ok = false, project = project, error = "impostor-pkg: socket failed to start: " .. tostring(err) })
+  end
+end
+
+local function run_preinstall_audit(project, pending, pending_names, callback)
+  -- classic yarn has no lockfile-only resolve mode, so `yarn audit` cannot see deps that are
+  -- only declared in package.json — surface them as explicitly unchecked instead of guessing.
+  if project.package_manager == "yarn" then
+    callback({ ok = true, project = project, findings = {}, pending = pending, unchecked = pending })
+    return
+  end
+
+  local resolve_command = audit_backend.resolve_lockfile_only(project.package_manager)
+  if not resolve_command or not audit_backend.is_available(project.package_manager) then
+    callback({
+      ok = false,
+      project = project,
+      error = "impostor-pkg: audit is not available (CLI not found) for " .. tostring(project.package_manager),
+    })
+    return
+  end
+
+  local resolve_ok, resolve_err = pcall(system_fn, resolve_command, { text = true }, function(resolve_completed)
+    vim.schedule(function()
+      if resolve_completed.code ~= 0 then
+        callback({
+          ok = false,
+          project = project,
+          error = "impostor-pkg: failed to resolve lockfile before audit (exit "
+            .. tostring(resolve_completed.code)
+            .. ")",
+        })
+        return
+      end
+
+      local audit_ok, audit_err =
+        pcall(system_fn, audit_backend.command_for(project.package_manager), { text = true }, function(audit_completed)
+          vim.schedule(function()
+            local findings = audit_backend.parse(project.package_manager, audit_completed.stdout or "")
+            callback({
+              ok = true,
+              project = project,
+              findings = apply_filters(filter_to_pending(findings, pending_names)),
+              pending = pending,
+            })
+          end)
+        end)
+
+      if not audit_ok then
+        callback({
+          ok = false,
+          project = project,
+          error = "impostor-pkg: audit failed to start: " .. tostring(audit_err),
+        })
+      end
+    end)
+  end)
+
+  if not resolve_ok then
+    callback({
+      ok = false,
+      project = project,
+      error = "impostor-pkg: lockfile resolution failed to start: " .. tostring(resolve_err),
+    })
+  end
+end
+
+function M.run_preinstall(callback)
+  local project = detect_fn()
+  if not project then
+    callback({ ok = true, skipped = true, project = nil, findings = {} })
+    return
+  end
+
+  local pending = preinstall.pending_dependencies(project)
+  if #pending == 0 then
+    callback({ ok = true, skipped = true, project = project, findings = {}, pending = {} })
+    return
+  end
+
+  local pending_names = {}
+  for _, dep in ipairs(pending) do
+    pending_names[dep.name] = true
+  end
+
+  local backend = M.pick_backend(project.package_manager)
+  if backend.name == "socket" then
+    run_preinstall_socket(project, pending, pending_names, callback)
+  else
+    run_preinstall_audit(project, pending, pending_names, callback)
   end
 end
 
