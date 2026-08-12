@@ -1,6 +1,10 @@
 local M = {}
 
-local SEVERITY_RANK = { low = 1, moderate = 2, high = 3, critical = 4 }
+-- "info" ranks below "low" so that info-level findings from real npm/yarn audit output are
+-- correctly filtered out under every valid min_severity; it is intentionally NOT a valid
+-- min_severity config value (see validate_min_severity / VALID_MIN_SEVERITIES below).
+local SEVERITY_RANK = { info = 0, low = 1, moderate = 2, high = 3, critical = 4 }
+local VALID_MIN_SEVERITIES = { low = true, moderate = true, high = true, critical = true }
 
 M.defaults = {
   backend = "auto",
@@ -18,7 +22,7 @@ local function validate_backend(backend)
 end
 
 local function validate_min_severity(min_severity)
-  if not SEVERITY_RANK[min_severity] then
+  if not VALID_MIN_SEVERITIES[min_severity] then
     error('impostor-pkg: \'min_severity\' must be one of "low", "moderate", "high", "critical"')
   end
 end

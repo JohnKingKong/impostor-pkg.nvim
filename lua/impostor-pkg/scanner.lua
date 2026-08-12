@@ -96,6 +96,23 @@ function M.run(opts, callback)
   end
 
   local backend = pick_backend(project.package_manager)
+
+  local available
+  if backend.name == "socket" then
+    available = socket_backend.is_available()
+  else
+    available = audit_backend.is_available(project.package_manager)
+  end
+
+  if not available then
+    callback({
+      ok = false,
+      project = project,
+      error = "impostor-pkg: " .. backend.name .. " is not available (CLI not found or not authenticated)",
+    })
+    return
+  end
+
   local command
   if backend.name == "socket" then
     command = backend.command_for(project.root)
@@ -103,31 +120,44 @@ function M.run(opts, callback)
     command = backend.command_for(project.package_manager)
   end
 
-  system_fn(command, { text = true }, function(completed)
-    local stdout = completed.stdout or ""
-    -- socket backend's parse takes only stdout; audit backend's parse takes (package_manager, stdout)
-    local findings
-    if backend.name == "socket" then
-      findings = backend.parse(stdout)
-    else
-      findings = backend.parse(project.package_manager, stdout)
-    end
+  local ok, err = pcall(system_fn, command, { text = true }, function(completed)
+    -- vim.system's on_exit callback runs in a libuv fast-event context; nvim_* / vim.notify /
+    -- vim.diagnostic.set (all reachable via the caller-supplied callback) must not be called
+    -- from there, so defer the rest of the work (and the callback) to the main loop.
+    vim.schedule(function()
+      local stdout = completed.stdout or ""
+      -- socket backend's parse takes only stdout; audit backend's parse takes (package_manager, stdout)
+      local findings
+      if backend.name == "socket" then
+        findings = backend.parse(stdout)
+      else
+        findings = backend.parse(project.package_manager, stdout)
+      end
 
-    if completed.code ~= 0 and #findings == 0 then
-      callback({
-        ok = false,
-        project = project,
-        error = "impostor-pkg: " .. backend.name .. " exited with code " .. tostring(completed.code),
-      })
-      return
-    end
+      if completed.code ~= 0 and #findings == 0 then
+        callback({
+          ok = false,
+          project = project,
+          error = "impostor-pkg: " .. backend.name .. " exited with code " .. tostring(completed.code),
+        })
+        return
+      end
 
-    if hash then
-      last_hash_by_lockfile[project.lockfile] = hash
-    end
+      if hash then
+        last_hash_by_lockfile[project.lockfile] = hash
+      end
 
-    callback({ ok = true, project = project, findings = apply_filters(findings) })
+      callback({ ok = true, project = project, findings = apply_filters(findings) })
+    end)
   end)
+
+  if not ok then
+    callback({
+      ok = false,
+      project = project,
+      error = "impostor-pkg: " .. backend.name .. " failed to start: " .. tostring(err),
+    })
+  end
 end
 
 return M

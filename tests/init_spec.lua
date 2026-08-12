@@ -55,8 +55,23 @@ describe("impostor-pkg.init", function()
       })
     end)
 
+    -- scanner.run defers the rest of the pipeline (ui.notify/ui.show/diagnostics.apply) to
+    -- vim.schedule, so check() itself cannot observe a downstream error synchronously. Pump the
+    -- event loop and use the floating window ui.show opens for non-empty findings as evidence
+    -- that ui.notify -> ui.show ran to completion without throwing.
+    local wins_before = #vim.api.nvim_list_wins()
+
     assert.has_no.errors(function()
       impostor_pkg.check()
     end)
+
+    vim.wait(200, function()
+      return #vim.api.nvim_list_wins() > wins_before
+    end, 5)
+
+    assert.are.equal(wins_before + 1, #vim.api.nvim_list_wins())
+
+    local wins = vim.api.nvim_list_wins()
+    vim.api.nvim_win_close(wins[#wins], true)
   end)
 end)
