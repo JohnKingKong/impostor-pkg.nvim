@@ -13,6 +13,16 @@ function M.command_for(package_manager)
   return command and vim.deepcopy(command) or nil
 end
 
+local LOCKFILE_ONLY_COMMANDS = {
+  npm = { "npm", "install", "--package-lock-only" },
+  pnpm = { "pnpm", "install", "--lockfile-only" },
+}
+
+function M.resolve_lockfile_only(package_manager)
+  local command = LOCKFILE_ONLY_COMMANDS[package_manager]
+  return command and vim.deepcopy(command) or nil
+end
+
 function M.is_available(package_manager)
   local command = COMMANDS[package_manager]
   return command ~= nil and vim.fn.executable(command[1]) == 1

@@ -19,6 +19,30 @@ describe("impostor-pkg.backends.audit", function()
     end)
   end)
 
+  describe("resolve_lockfile_only", function()
+    it("returns the lockfile-only resolve command for npm", function()
+      assert.are.same({ "npm", "install", "--package-lock-only" }, audit.resolve_lockfile_only("npm"))
+    end)
+
+    it("returns the lockfile-only resolve command for pnpm", function()
+      assert.are.same({ "pnpm", "install", "--lockfile-only" }, audit.resolve_lockfile_only("pnpm"))
+    end)
+
+    it("returns nil for yarn (classic yarn has no lockfile-only mode)", function()
+      assert.is_nil(audit.resolve_lockfile_only("yarn"))
+    end)
+
+    it("returns nil for an unknown package manager", function()
+      assert.is_nil(audit.resolve_lockfile_only("bun"))
+    end)
+
+    it("does not let a caller mutate the underlying command table", function()
+      local command = audit.resolve_lockfile_only("npm")
+      table.insert(command, "--extra-flag")
+      assert.are.same({ "npm", "install", "--package-lock-only" }, audit.resolve_lockfile_only("npm"))
+    end)
+  end)
+
   describe("parse npm", function()
     it("extracts findings from the npm 7+ vulnerabilities shape", function()
       local stdout = vim.json.encode({
