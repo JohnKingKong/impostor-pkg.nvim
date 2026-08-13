@@ -104,6 +104,16 @@ function M.get()
   return resolved
 end
 
+function M.add_ignore(name)
+  local current = M.get()
+  for _, existing in ipairs(current.ignore) do
+    if existing == name then
+      return
+    end
+  end
+  table.insert(current.ignore, name)
+end
+
 function M.severity_at_least(severity, min_severity)
   local severity_value = SEVERITY_RANK[severity]
   local min_value = SEVERITY_RANK[min_severity]

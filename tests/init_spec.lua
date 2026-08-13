@@ -627,4 +627,146 @@ describe("impostor-pkg.init", function()
       end)
     end)
   end)
+
+  describe("ignore_finding", function()
+    local persist_ignore = require("impostor-pkg.persist_ignore")
+    local original_persist_add
+
+    before_each(function()
+      original_persist_add = persist_ignore.add
+      impostor_pkg._reset_setup_call_location()
+    end)
+
+    after_each(function()
+      persist_ignore.add = original_persist_add
+      impostor_pkg._reset_setup_call_location()
+      impostor_pkg._reset_install_fns()
+    end)
+
+    local function stub_finding()
+      return { name = "left-pad", version = "1.3.0", severity = "high", backend = "audit", reason = "..." }
+    end
+
+    it("returns false and does not ignore anything when the user declines", function()
+      impostor_pkg._set_confirm_fn(function()
+        return 2 -- "No"
+      end)
+      persist_ignore.add = function()
+        error("should not be called")
+      end
+
+      local ignored = impostor_pkg.ignore_finding(stub_finding())
+
+      assert.is_false(ignored)
+      assert.are.same({}, config.get().ignore)
+    end)
+
+    it("adds to the in-memory ignore list and notifies session-only when no setup call site is known", function()
+      impostor_pkg._set_confirm_fn(function()
+        return 1 -- "Yes"
+      end)
+      local captured
+      local original_notify = vim.notify
+      vim.notify = function(msg, level)
+        captured = { msg = msg, level = level }
+      end
+
+      local ignored = impostor_pkg.ignore_finding(stub_finding())
+
+      vim.notify = original_notify
+      assert.is_true(ignored)
+      assert.are.same({ "left-pad" }, config.get().ignore)
+      assert.matches("session", captured.msg)
+      assert.are.equal(vim.log.levels.WARN, captured.level)
+    end)
+
+    it("persists via persist_ignore.add when a setup call site is known, and notifies success", function()
+      impostor_pkg._set_confirm_fn(function()
+        return 1
+      end)
+      impostor_pkg._set_setup_call_location("/tmp/plugins/impostor-pkg.lua", 3)
+      local persist_call
+      persist_ignore.add = function(file, line, name)
+        persist_call = { file = file, line = line, name = name }
+        return true, 'impostor-pkg: added "' .. name .. '" to ignore in ' .. file
+      end
+      local captured
+      local original_notify = vim.notify
+      vim.notify = function(msg, level)
+        captured = { msg = msg, level = level }
+      end
+
+      local ignored = impostor_pkg.ignore_finding(stub_finding())
+
+      vim.notify = original_notify
+      assert.is_true(ignored)
+      assert.are.same({ file = "/tmp/plugins/impostor-pkg.lua", line = 3, name = "left-pad" }, persist_call)
+      assert.matches("left%-pad", captured.msg)
+      assert.are.equal(vim.log.levels.INFO, captured.level)
+    end)
+
+    it("still applies the in-memory ignore and warns when persist_ignore.add fails", function()
+      impostor_pkg._set_confirm_fn(function()
+        return 1
+      end)
+      impostor_pkg._set_setup_call_location("/tmp/plugins/impostor-pkg.lua", 3)
+      persist_ignore.add = function()
+        return false, "impostor-pkg: could not find the setup() call"
+      end
+      local captured
+      local original_notify = vim.notify
+      vim.notify = function(msg, level)
+        captured = { msg = msg, level = level }
+      end
+
+      local ignored = impostor_pkg.ignore_finding(stub_finding())
+
+      vim.notify = original_notify
+      assert.is_true(ignored)
+      assert.are.same({ "left-pad" }, config.get().ignore)
+      assert.are.equal(vim.log.levels.WARN, captured.level)
+    end)
+
+    it("refreshes diagnostics for cached projects, filtering out the newly-ignored name", function()
+      impostor_pkg._set_confirm_fn(function()
+        return 1
+      end)
+      local dir = vim.fn.tempname()
+      vim.fn.mkdir(dir, "p")
+      local package_json_path = dir .. "/package.json"
+      local fd = assert(io.open(package_json_path, "w"))
+      fd:write('{\n  "dependencies": {\n    "left-pad": "1.3.0"\n  }\n}\n')
+      fd:close()
+      local bufnr = vim.fn.bufadd(package_json_path)
+      vim.fn.bufload(bufnr)
+
+      scanner._set_detect_fn(function()
+        return {
+          root = dir,
+          package_manager = "npm",
+          lockfile = dir .. "/package-lock.json",
+          package_json = package_json_path,
+        }
+      end)
+      scanner._set_system_fn(function(_cmd, _opts, on_exit)
+        on_exit({
+          code = 0,
+          stdout = vim.json.encode({
+            vulnerabilities = { ["left-pad"] = { name = "left-pad", severity = "high", via = {} } },
+          }),
+          stderr = "",
+        })
+      end)
+
+      impostor_pkg.check()
+      vim.wait(200, function()
+        return #vim.diagnostic.get(bufnr) > 0
+      end, 5)
+      assert.are.equal(1, #vim.diagnostic.get(bufnr))
+
+      impostor_pkg.ignore_finding(stub_finding())
+
+      assert.are.equal(0, #vim.diagnostic.get(bufnr))
+    end)
+  end)
 end)

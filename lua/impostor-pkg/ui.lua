@@ -89,7 +89,9 @@ local function render_lines(findings)
   return lines
 end
 
-function M.show(findings)
+function M.show(findings, opts)
+  opts = opts or {}
+
   if #findings == 0 then
     return
   end
@@ -120,6 +122,23 @@ function M.show(findings)
 
   vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = bufnr, silent = true })
   vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", { buffer = bufnr, silent = true })
+
+  if opts.on_ignore then
+    vim.keymap.set("n", "i", function()
+      local lnum = vim.api.nvim_win_get_cursor(win)[1]
+      local finding = findings[lnum]
+      if not finding then
+        return
+      end
+      local ignored = opts.on_ignore(finding)
+      if ignored then
+        table.remove(findings, lnum)
+        vim.bo[bufnr].modifiable = true
+        vim.api.nvim_buf_set_lines(bufnr, lnum - 1, lnum, false, {})
+        vim.bo[bufnr].modifiable = false
+      end
+    end, { buffer = bufnr, silent = true })
+  end
 
   return win
 end

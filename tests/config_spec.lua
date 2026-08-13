@@ -92,6 +92,25 @@ describe("impostor-pkg.config", function()
     end)
   end)
 
+  describe("add_ignore", function()
+    it("appends a package name to the currently resolved ignore list", function()
+      config.setup({ ignore = { "left-pad" } })
+      config.add_ignore("colors")
+      assert.are.same({ "left-pad", "colors" }, config.get().ignore)
+    end)
+
+    it("is idempotent — does not add the same name twice", function()
+      config.setup({ ignore = { "left-pad" } })
+      config.add_ignore("left-pad")
+      assert.are.same({ "left-pad" }, config.get().ignore)
+    end)
+
+    it("works even when setup() was never called", function()
+      config.add_ignore("colors")
+      assert.are.same({ "colors" }, config.get().ignore)
+    end)
+  end)
+
   it("does not alias a user-supplied ignore table after setup()", function()
     local user_ignore = { "left-pad" }
     config.setup({ ignore = user_ignore })

@@ -6,6 +6,7 @@ local ui = require("impostor-pkg.ui")
 local diagnostics = require("impostor-pkg.diagnostics")
 local detect = require("impostor-pkg.detect")
 local socket_backend = require("impostor-pkg.backends.socket")
+local persist_ignore = require("impostor-pkg.persist_ignore")
 
 local AUGROUP = vim.api.nvim_create_augroup("impostor-pkg", { clear = true })
 local notified_socket_status = false
@@ -30,6 +31,22 @@ end
 function M._reset_install_fns()
   jobstart_fn = vim.fn.jobstart
   confirm_fn = vim.fn.confirm
+end
+
+-- Captured from setup()'s call stack so ignore_finding() knows which file to persist a new
+-- ignore entry into. Injectable for tests, since debug.getinfo's result depends on the real
+-- call site.
+local setup_call_file = nil
+local setup_call_line = nil
+
+function M._set_setup_call_location(file, line)
+  setup_call_file = file
+  setup_call_line = line
+end
+
+function M._reset_setup_call_location()
+  setup_call_file = nil
+  setup_call_line = nil
 end
 
 local function notify_socket_status_once()
@@ -62,6 +79,51 @@ local function realpath(path)
   return (vim.uv.fs_realpath(path)) or path
 end
 
+-- Adds `finding.name` to the ignore list, after confirming with the user. Applies immediately
+-- in-memory regardless of outcome; also attempts to persist it into whichever file called
+-- setup() (best-effort — falls back to a session-only notice if that file can't be safely
+-- edited). Returns true if the finding was ignored (the caller should stop showing it), false
+-- if the user declined.
+function M.ignore_finding(finding)
+  local name = finding.name
+  if not name then
+    return false
+  end
+
+  local choice =
+    confirm_fn("impostor-pkg: ignore '" .. name .. "' going forward? This edits your config file.", "&Yes\n&No", 2)
+  if choice ~= 1 then
+    return false
+  end
+
+  config.add_ignore(name)
+
+  if setup_call_file then
+    local ok, message = persist_ignore.add(setup_call_file, setup_call_line, name)
+    vim.notify(message, ok and vim.log.levels.INFO or vim.log.levels.WARN)
+  else
+    vim.notify(
+      "impostor-pkg: ignoring '"
+        .. name
+        .. "' for this session only — add it to your setup({ ignore = {...} }) call to persist it.",
+      vim.log.levels.WARN
+    )
+  end
+
+  for package_json_path, findings in pairs(last_findings_by_project) do
+    local filtered = {}
+    for _, f in ipairs(findings) do
+      if f.name ~= name then
+        table.insert(filtered, f)
+      end
+    end
+    last_findings_by_project[package_json_path] = filtered
+    diagnostics.apply(package_json_path, filtered)
+  end
+
+  return true
+end
+
 function M.check(check_opts)
   check_opts = check_opts or {}
 
@@ -76,7 +138,7 @@ function M.check(check_opts)
     end
 
     ui.notify(result.findings)
-    ui.show(result.findings)
+    ui.show(result.findings, { on_ignore = M.ignore_finding })
 
     if result.project then
       diagnostics.apply(result.project.package_json, result.findings)
@@ -230,6 +292,12 @@ function M.install()
 end
 
 function M.setup(opts)
+  local caller = debug.getinfo(2, "Sl")
+  if caller and caller.source and caller.source:sub(1, 1) == "@" then
+    setup_call_file = caller.source:sub(2)
+    setup_call_line = caller.currentline
+  end
+
   config.setup(opts)
   notify_socket_status_once()
 

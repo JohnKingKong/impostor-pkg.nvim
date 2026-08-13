@@ -129,5 +129,118 @@ describe("impostor-pkg.ui", function()
 
       vim.api.nvim_win_close(floating_win, true)
     end)
+
+    it("does not register an 'i' keymap when on_ignore is not provided", function()
+      ui.show({
+        { name = "left-pad", version = "1.3.0", severity = "high", backend = "audit", reason = "..." },
+      })
+      local wins = vim.api.nvim_list_wins()
+      local floating_win = wins[#wins]
+      local bufnr = vim.api.nvim_win_get_buf(floating_win)
+
+      local buf_keymaps = vim.api.nvim_buf_get_keymap(bufnr, "n")
+      local has_i = false
+      for _, km in ipairs(buf_keymaps) do
+        if km.lhs == "i" then
+          has_i = true
+        end
+      end
+      assert.is_false(has_i)
+
+      vim.api.nvim_win_close(floating_win, true)
+    end)
+
+    it("invokes on_ignore with the finding under the cursor when 'i' is pressed", function()
+      local findings = {
+        { name = "left-pad", version = "1.3.0", severity = "high", backend = "audit", reason = "..." },
+        { name = "colors", version = "1.4.0", severity = "critical", backend = "audit", reason = "..." },
+      }
+      local ignored
+      ui.show(findings, {
+        on_ignore = function(finding)
+          ignored = finding
+        end,
+      })
+
+      local wins = vim.api.nvim_list_wins()
+      local floating_win = wins[#wins]
+      vim.api.nvim_win_set_cursor(floating_win, { 2, 0 })
+
+      local bufnr = vim.api.nvim_win_get_buf(floating_win)
+      local buf_keymaps = vim.api.nvim_buf_get_keymap(bufnr, "n")
+      local i_keymap
+      for _, km in ipairs(buf_keymaps) do
+        if km.lhs == "i" then
+          i_keymap = km
+        end
+      end
+      assert.is_not_nil(i_keymap)
+      i_keymap.callback()
+
+      assert.is_not_nil(ignored)
+      assert.are.equal("colors", ignored.name)
+
+      vim.api.nvim_win_close(floating_win, true)
+    end)
+
+    it("removes the line from the window when on_ignore returns true", function()
+      local findings = {
+        { name = "left-pad", version = "1.3.0", severity = "high", backend = "audit", reason = "..." },
+        { name = "colors", version = "1.4.0", severity = "critical", backend = "audit", reason = "..." },
+      }
+      ui.show(findings, {
+        on_ignore = function()
+          return true
+        end,
+      })
+
+      local wins = vim.api.nvim_list_wins()
+      local floating_win = wins[#wins]
+      local bufnr = vim.api.nvim_win_get_buf(floating_win)
+      vim.api.nvim_win_set_cursor(floating_win, { 1, 0 })
+
+      local i_keymap
+      for _, km in ipairs(vim.api.nvim_buf_get_keymap(bufnr, "n")) do
+        if km.lhs == "i" then
+          i_keymap = km
+        end
+      end
+      i_keymap.callback()
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      assert.are.equal(1, #lines)
+      assert.matches("colors", lines[1])
+      assert.is_false(vim.bo[bufnr].modifiable)
+
+      vim.api.nvim_win_close(floating_win, true)
+    end)
+
+    it("keeps the line in the window when on_ignore returns false", function()
+      local findings = {
+        { name = "left-pad", version = "1.3.0", severity = "high", backend = "audit", reason = "..." },
+      }
+      ui.show(findings, {
+        on_ignore = function()
+          return false
+        end,
+      })
+
+      local wins = vim.api.nvim_list_wins()
+      local floating_win = wins[#wins]
+      local bufnr = vim.api.nvim_win_get_buf(floating_win)
+
+      local i_keymap
+      for _, km in ipairs(vim.api.nvim_buf_get_keymap(bufnr, "n")) do
+        if km.lhs == "i" then
+          i_keymap = km
+        end
+      end
+      i_keymap.callback()
+
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      assert.are.equal(1, #lines)
+
+      vim.api.nvim_win_close(floating_win, true)
+    end)
   end)
 end)
