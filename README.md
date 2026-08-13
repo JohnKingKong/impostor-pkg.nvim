@@ -18,6 +18,7 @@ Uses [Socket CLI](https://docs.socket.dev/docs/socket-cli) when it's installed a
 2. On `package.json` save (debounced ~500ms), or once on startup, declared dependencies are separately diffed against the lockfile to find anything **not yet installed**, and only those are checked — via Socket, or (audit-only) by resolving the lockfile over the network without touching `node_modules`, auditing, then restoring the lockfile to its exact original contents.
 3. `:ImpostorCheck` (alias `:Impostor`) forces a fresh post-install scan on demand, bypassing the lockfile-hash cache.
 4. `:ImpostorInstall` checks pending dependencies, then runs your project's actual package manager's install (`npm`/`yarn`/`pnpm`) in a terminal split. If anything is flagged at or above `confirm_threshold`, or couldn't be verified at all (yarn has no lockfile-only resolve mode, so it needs Socket to check pending deps), you're asked to confirm before it proceeds.
+5. In `:ImpostorCheck`'s floating results window, press `i` on a finding to ignore that package going forward — it's applied immediately, and best-effort persisted into whichever file called `setup()` by inserting it into that call's `ignore = {...}` table. If the file can't be safely edited (unusual formatting, multiple `setup()` calls), nothing is touched and it falls back to a session-only notice telling you what to add yourself.
 
 **A passive scan never installs anything or leaves your lockfile changed** — resolving it to see what a pending dependency would look like is an internal detection step, immediately reverted. Only accepting `:ImpostorInstall`'s confirm prompt runs a real install.
 
@@ -121,6 +122,8 @@ The plugin is split into small, single-purpose modules:
 **`lua/impostor-pkg/backends/audit.lua`** — native `npm`/`yarn`/`pnpm audit` commands, `--package-lock-only`/`--lockfile-only` resolution, and result parsing
 
 **`lua/impostor-pkg/diagnostics.lua`** — maps findings to their line in `package.json` and applies `vim.diagnostic`
+
+**`lua/impostor-pkg/persist_ignore.lua`** — text-based editing of the `ignore = {...}` table in whichever file called `setup()`, for the results window's `i` keymap
 
 **`lua/impostor-pkg/ui.lua`** — `vim.notify` summaries and the floating results window
 
