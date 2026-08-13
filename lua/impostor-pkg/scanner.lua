@@ -198,6 +198,25 @@ local function run_preinstall_socket(project, pending, pending_names, callback)
   end
 end
 
+local function read_file_contents(path)
+  local fd = io.open(path, "r")
+  if not fd then
+    return nil
+  end
+  local contents = fd:read("*a")
+  fd:close()
+  return contents
+end
+
+local function write_file_contents(path, contents)
+  local fd = io.open(path, "w")
+  if not fd then
+    return
+  end
+  fd:write(contents)
+  fd:close()
+end
+
 local function run_preinstall_audit(project, pending, pending_names, callback)
   -- classic yarn has no lockfile-only resolve mode, so `yarn audit` cannot see deps that are
   -- only declared in package.json — surface them as explicitly unchecked instead of guessing.
@@ -216,10 +235,28 @@ local function run_preinstall_audit(project, pending, pending_names, callback)
     return
   end
 
+  -- resolve_lockfile_only writes real changes to the lockfile on disk purely so the audit CLI
+  -- can see the pending deps; this scan is detection-only, not an install, so the lockfile is
+  -- restored to its pre-scan contents right before the callback fires, on every exit path
+  -- (success, resolve failure, or audit failure) — the mutation is an internal implementation
+  -- detail, invisible to the caller. A real install (a separate, explicit `npm install` run
+  -- only after the user accepts) will re-resolve and write the lockfile properly on its own.
+  local lockfile_snapshot = read_file_contents(project.lockfile)
+
+  local function finish(result)
+    if lockfile_snapshot then
+      local current = read_file_contents(project.lockfile)
+      if current ~= lockfile_snapshot then
+        write_file_contents(project.lockfile, lockfile_snapshot)
+      end
+    end
+    callback(result)
+  end
+
   local resolve_ok, resolve_err = pcall(system_fn, resolve_command, { text = true }, function(resolve_completed)
     vim.schedule(function()
       if resolve_completed.code ~= 0 then
-        callback({
+        finish({
           ok = false,
           project = project,
           error = "impostor-pkg: failed to resolve lockfile before audit (exit "
@@ -236,7 +273,7 @@ local function run_preinstall_audit(project, pending, pending_names, callback)
         function(audit_completed)
           vim.schedule(function()
             local findings = audit_backend.parse(project.package_manager, audit_completed.stdout or "")
-            callback({
+            finish({
               ok = true,
               project = project,
               findings = apply_filters(filter_to_pending(findings, pending_names)),
@@ -247,7 +284,7 @@ local function run_preinstall_audit(project, pending, pending_names, callback)
       )
 
       if not audit_ok then
-        callback({
+        finish({
           ok = false,
           project = project,
           error = "impostor-pkg: audit failed to start: " .. tostring(audit_err),
@@ -257,7 +294,7 @@ local function run_preinstall_audit(project, pending, pending_names, callback)
   end)
 
   if not resolve_ok then
-    callback({
+    finish({
       ok = false,
       project = project,
       error = "impostor-pkg: lockfile resolution failed to start: " .. tostring(resolve_err),

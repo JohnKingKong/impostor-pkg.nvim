@@ -355,5 +355,76 @@ describe("impostor-pkg.scanner", function()
       assert.are.equal("new-dep", result.unchecked[1].name)
       assert.are.same({}, result.findings)
     end)
+
+    describe("lockfile restore (audit resolve-then-audit is detection-only, not an install)", function()
+      local dir, lockfile_path, original_content
+
+      before_each(function()
+        dir = vim.fn.tempname()
+        vim.fn.mkdir(dir, "p")
+        lockfile_path = dir .. "/package-lock.json"
+        original_content = '{"name":"proj","lockfileVersion":3,"packages":{}}'
+        local fd = assert(io.open(lockfile_path, "w"))
+        fd:write(original_content)
+        fd:close()
+
+        scanner._set_detect_fn(function()
+          return {
+            root = dir,
+            package_manager = "npm",
+            lockfile = lockfile_path,
+            package_json = dir .. "/package.json",
+          }
+        end)
+        -- the enclosing describe's own after_each (above) restores preinstall.pending_dependencies
+        -- after every test, including these, so no separate save/restore is needed here.
+        preinstall.pending_dependencies = function()
+          return { { name = "new-dep", version = "^1.0.0" } }
+        end
+      end)
+
+      local function read_lockfile()
+        local fd = assert(io.open(lockfile_path, "r"))
+        local contents = fd:read("*a")
+        fd:close()
+        return contents
+      end
+
+      local RESOLVED_CONTENT = '{"name":"proj","lockfileVersion":3,"packages":'
+        .. '{"node_modules/new-dep":{"version":"1.0.0"}}}'
+
+      it("restores the lockfile to its pre-scan contents after a successful scan", function()
+        scanner._set_system_fn(function(cmd, _opts, on_exit)
+          if cmd[3] == "--package-lock-only" then
+            -- simulate the real `npm install --package-lock-only` mutating the lockfile on disk
+            local fd = assert(io.open(lockfile_path, "w"))
+            fd:write(RESOLVED_CONTENT)
+            fd:close()
+            on_exit({ code = 0, stdout = "", stderr = "" })
+          else
+            on_exit({ code = 0, stdout = "{}", stderr = "" })
+          end
+        end)
+
+        local result = run_preinstall_and_wait()
+
+        assert.is_true(result.ok)
+        assert.are.equal(original_content, read_lockfile())
+      end)
+
+      it("restores the lockfile even when the resolve step exits non-zero after mutating it", function()
+        scanner._set_system_fn(function(_cmd, _opts, on_exit)
+          local fd = assert(io.open(lockfile_path, "w"))
+          fd:write(RESOLVED_CONTENT)
+          fd:close()
+          on_exit({ code = 1, stdout = "", stderr = "network error" })
+        end)
+
+        local result = run_preinstall_and_wait()
+
+        assert.is_false(result.ok)
+        assert.are.equal(original_content, read_lockfile())
+      end)
+    end)
   end)
 end)

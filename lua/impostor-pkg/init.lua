@@ -69,10 +69,36 @@ function M.check(check_opts)
   end)
 end
 
+-- The passive package.json autocmd and :ImpostorInstall each independently trigger a
+-- scanner.run_preinstall call, which (for audit-only npm/pnpm) spawns real subprocesses that
+-- mutate the lockfile on disk. Running two such scans concurrently races on that same file, so
+-- every call is funneled through this single-flight queue: only one scanner.run_preinstall runs
+-- at a time, and any call arriving while one is in flight waits its turn instead of racing it.
+local preinstall_scan_queue = {}
+local preinstall_scan_running = false
+
+local function process_preinstall_scan_queue()
+  if preinstall_scan_running or #preinstall_scan_queue == 0 then
+    return
+  end
+  preinstall_scan_running = true
+  local next_callback = table.remove(preinstall_scan_queue, 1)
+  scanner.run_preinstall(function(result)
+    preinstall_scan_running = false
+    next_callback(result)
+    process_preinstall_scan_queue()
+  end)
+end
+
+local function run_preinstall_exclusive(callback)
+  table.insert(preinstall_scan_queue, callback)
+  process_preinstall_scan_queue()
+end
+
 function M.check_preinstall(on_done)
   on_done = on_done or function() end
 
-  scanner.run_preinstall(function(result)
+  run_preinstall_exclusive(function(result)
     if result.skipped then
       on_done()
       return
@@ -121,7 +147,7 @@ local function run_install_terminal(project)
 end
 
 function M.install()
-  scanner.run_preinstall(function(result)
+  run_preinstall_exclusive(function(result)
     if result.skipped and not result.project then
       vim.notify("impostor-pkg: no npm/yarn/pnpm project detected", vim.log.levels.WARN)
       return

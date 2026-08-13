@@ -484,4 +484,61 @@ describe("impostor-pkg.init", function()
       assert.are.equal(0, #jobstart_calls)
     end)
   end)
+
+  describe("run_preinstall_exclusive (shared scan serialization)", function()
+    local preinstall = require("impostor-pkg.preinstall")
+    local original_pending_dependencies
+
+    before_each(function()
+      original_pending_dependencies = preinstall.pending_dependencies
+      preinstall.pending_dependencies = function()
+        return { { name = "new-dep", version = "^1.0.0" } }
+      end
+      scanner._set_detect_fn(function()
+        return {
+          root = "/tmp/proj",
+          package_manager = "npm",
+          lockfile = "/tmp/proj/package-lock.json",
+          package_json = "/tmp/proj/package.json",
+        }
+      end)
+    end)
+
+    after_each(function()
+      preinstall.pending_dependencies = original_pending_dependencies
+    end)
+
+    it("does not start install()'s scan while check_preinstall's scan is still in flight", function()
+      local calls = {}
+      scanner._set_system_fn(function(cmd, _opts, on_exit)
+        table.insert(calls, { cmd = cmd, on_exit = on_exit })
+      end)
+
+      impostor_pkg.check_preinstall()
+      vim.wait(50, function()
+        return #calls >= 1
+      end, 5)
+      assert.are.equal(1, #calls) -- only check_preinstall's resolve call has started
+
+      impostor_pkg.install()
+      vim.wait(50, function()
+        return false
+      end, 5)
+      assert.are.equal(1, #calls) -- install()'s scan must not start concurrently; still just 1
+
+      -- complete check_preinstall's resolve step, then its audit step
+      calls[1].on_exit({ code = 0, stdout = "", stderr = "" })
+      vim.wait(200, function()
+        return #calls >= 2
+      end, 5)
+      assert.are.equal(2, #calls)
+      calls[2].on_exit({ code = 0, stdout = "{}", stderr = "" })
+      vim.wait(200, function()
+        return #calls >= 3
+      end, 5)
+
+      -- now that check_preinstall's full scan has finished, install()'s queued scan begins
+      assert.are.equal(3, #calls)
+    end)
+  end)
 end)
