@@ -47,6 +47,21 @@ local function notify_socket_status_once()
   end
 end
 
+-- Diagnostics can only attach to an already-loaded buffer (diagnostics.apply no-ops otherwise —
+-- see bufnr_for_path). A scan can finish before the user has ever opened package.json (e.g.
+-- `nvim .` opens a file explorer, not the file itself), so the last findings applied for each
+-- project are cached here and replayed by the BufReadPost autocmd below the moment that buffer
+-- actually loads, without needing a fresh scan.
+local last_findings_by_project = {}
+
+-- detect.lua's path and the buffer's registered name can resolve differently when a directory
+-- in the path is a symlink (e.g. macOS's /tmp -> /private/tmp, or /var/folders/...) — Neovim
+-- normalizes a loaded buffer's name to the real, resolved path, so cache keys are normalized the
+-- same way on both the write and read side to avoid a spurious mismatch.
+local function realpath(path)
+  return (vim.uv.fs_realpath(path)) or path
+end
+
 function M.check(check_opts)
   check_opts = check_opts or {}
 
@@ -65,6 +80,7 @@ function M.check(check_opts)
 
     if result.project then
       diagnostics.apply(result.project.package_json, result.findings)
+      last_findings_by_project[realpath(result.project.package_json)] = result.findings
     end
   end)
 end
@@ -114,6 +130,7 @@ function M.check_preinstall(on_done)
 
     if result.project then
       diagnostics.apply(result.project.package_json, result.findings)
+      last_findings_by_project[realpath(result.project.package_json)] = result.findings
     end
 
     on_done()
@@ -166,6 +183,7 @@ function M.install()
     ui.notify_preinstall(result)
     if result.project then
       diagnostics.apply(result.project.package_json, result.findings)
+      last_findings_by_project[realpath(result.project.package_json)] = result.findings
     end
 
     local resolved = config.get()
@@ -253,6 +271,19 @@ function M.setup(opts)
       desc = "impostor-pkg: scan on startup",
     })
   end
+
+  vim.api.nvim_create_autocmd("BufReadPost", {
+    group = AUGROUP,
+    pattern = "*/package.json",
+    callback = function(args)
+      local path = vim.api.nvim_buf_get_name(args.buf)
+      local cached = last_findings_by_project[realpath(path)]
+      if cached then
+        diagnostics.apply(path, cached)
+      end
+    end,
+    desc = "impostor-pkg: reapply cached diagnostics once package.json's buffer loads",
+  })
 end
 
 return M

@@ -541,4 +541,90 @@ describe("impostor-pkg.init", function()
       assert.are.equal(3, #calls)
     end)
   end)
+
+  describe("diagnostics replay on buffer open (BufReadPost)", function()
+    local preinstall = require("impostor-pkg.preinstall")
+    local original_pending_dependencies
+    local dir, package_json_path
+
+    before_each(function()
+      dir = vim.fn.tempname()
+      vim.fn.mkdir(dir, "p")
+      package_json_path = dir .. "/package.json"
+      local fd = assert(io.open(package_json_path, "w"))
+      fd:write('{\n  "dependencies": {\n    "new-dep": "^1.0.0"\n  }\n}\n')
+      fd:close()
+
+      scanner._set_detect_fn(function()
+        return {
+          root = dir,
+          package_manager = "npm",
+          lockfile = dir .. "/package-lock.json",
+          package_json = package_json_path,
+        }
+      end)
+      original_pending_dependencies = preinstall.pending_dependencies
+      preinstall.pending_dependencies = function()
+        return { { name = "new-dep", version = "^1.0.0" } }
+      end
+    end)
+
+    after_each(function()
+      preinstall.pending_dependencies = original_pending_dependencies
+    end)
+
+    it(
+      "applies the cached diagnostic once package.json's buffer loads, "
+        .. "for a scan that ran before the buffer existed (e.g. `nvim .` opening a file explorer)",
+      function()
+        scanner._set_system_fn(function(cmd, _opts, on_exit)
+          if cmd[3] == "--package-lock-only" then
+            on_exit({ code = 0, stdout = "", stderr = "" })
+          else
+            on_exit({
+              code = 0,
+              stdout = vim.json.encode({
+                vulnerabilities = { ["new-dep"] = { name = "new-dep", severity = "high", via = {} } },
+              }),
+              stderr = "",
+            })
+          end
+        end)
+
+        impostor_pkg.setup({ backend = "audit" })
+
+        -- package.json is not open in any buffer at this point — diagnostics.apply() has
+        -- nothing to attach the diagnostic to yet, even though the scan itself succeeds.
+        local scan_done = false
+        impostor_pkg.check_preinstall(function()
+          scan_done = true
+        end)
+        vim.wait(200, function()
+          return scan_done
+        end, 5)
+        assert.are.equal(-1, vim.fn.bufnr(package_json_path))
+
+        -- now the user opens package.json for the first time, creating its buffer
+        local bufnr = vim.fn.bufadd(package_json_path)
+        vim.fn.bufload(bufnr)
+        vim.api.nvim_exec_autocmds("BufReadPost", { buffer = bufnr })
+
+        local diags = vim.diagnostic.get(bufnr)
+        assert.are.equal(1, #diags)
+        -- line 2 (0-indexed) is `    "new-dep": "^1.0.0"` in the fixture written above
+        assert.are.equal(2, diags[1].lnum)
+        assert.matches("high", diags[1].message)
+      end
+    )
+
+    it("does not error when a package.json buffer opens with no cached scan result", function()
+      impostor_pkg.setup({ backend = "audit" })
+
+      assert.has_no.errors(function()
+        local bufnr = vim.fn.bufadd(package_json_path)
+        vim.fn.bufload(bufnr)
+        vim.api.nvim_exec_autocmds("BufReadPost", { buffer = bufnr })
+      end)
+    end)
+  end)
 end)
