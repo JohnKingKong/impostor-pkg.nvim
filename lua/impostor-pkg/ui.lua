@@ -11,6 +11,29 @@ local SEVERITY_HL = {
 
 local NAMESPACE = vim.api.nvim_create_namespace("impostor-pkg-ui")
 
+local SEVERITY_RANK = {}
+for i, severity in ipairs(SEVERITY_ORDER) do
+  SEVERITY_RANK[severity] = i
+end
+
+local function sort_by_severity(findings)
+  local indexed = {}
+  for i, finding in ipairs(findings) do
+    indexed[i] = { finding = finding, index = i }
+  end
+  table.sort(indexed, function(a, b)
+    local rank_a = SEVERITY_RANK[a.finding.severity] or (#SEVERITY_ORDER + 1)
+    local rank_b = SEVERITY_RANK[b.finding.severity] or (#SEVERITY_ORDER + 1)
+    if rank_a ~= rank_b then
+      return rank_a < rank_b
+    end
+    return a.index < b.index
+  end)
+  for i, item in ipairs(indexed) do
+    findings[i] = item.finding
+  end
+end
+
 local function severity_parts(findings)
   local counts = {}
   for _, finding in ipairs(findings) do
@@ -104,6 +127,8 @@ function M.show(findings, opts)
   if #findings == 0 then
     return
   end
+
+  sort_by_severity(findings)
 
   local lines = render_lines(findings)
   local bufnr = vim.api.nvim_create_buf(false, true)

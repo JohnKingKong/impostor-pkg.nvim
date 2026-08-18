@@ -178,7 +178,7 @@ describe("impostor-pkg.ui", function()
       i_keymap.callback()
 
       assert.is_not_nil(ignored)
-      assert.are.equal("colors", ignored.name)
+      assert.are.equal("left-pad", ignored.name)
 
       vim.api.nvim_win_close(floating_win, true)
     end)
@@ -209,7 +209,7 @@ describe("impostor-pkg.ui", function()
 
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       assert.are.equal(1, #lines)
-      assert.matches("colors", lines[1])
+      assert.matches("left%-pad", lines[1])
       assert.is_false(vim.bo[bufnr].modifiable)
 
       vim.api.nvim_win_close(floating_win, true)
