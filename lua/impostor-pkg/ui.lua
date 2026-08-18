@@ -2,6 +2,15 @@ local M = {}
 
 local SEVERITY_ORDER = { "critical", "high", "moderate", "low" }
 
+local SEVERITY_HL = {
+  critical = "DiagnosticError",
+  high = "DiagnosticError",
+  moderate = "DiagnosticWarn",
+  low = "DiagnosticInfo",
+}
+
+local NAMESPACE = vim.api.nvim_create_namespace("impostor-pkg-ui")
+
 local function severity_parts(findings)
   local counts = {}
   for _, finding in ipairs(findings) do
@@ -101,6 +110,13 @@ function M.show(findings, opts)
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
   vim.bo[bufnr].modifiable = false
   vim.bo[bufnr].bufhidden = "wipe"
+
+  for i, finding in ipairs(findings) do
+    local hl = SEVERITY_HL[finding.severity]
+    if hl then
+      vim.api.nvim_buf_add_highlight(bufnr, NAMESPACE, hl, i - 1, 1, 1 + #finding.severity)
+    end
+  end
 
   local width = 0
   for _, line in ipairs(lines) do
