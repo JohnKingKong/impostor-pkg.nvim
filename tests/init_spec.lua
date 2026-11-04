@@ -56,6 +56,38 @@ describe("impostor-pkg.init", function()
     assert.are.equal(0, detect_calls)
   end)
 
+  it(
+    "also scans on DirChanged, to catch up once a later-loaded plugin (e.g. a workspace-per-tab "
+      .. "manager on VeryLazy) sets the real project directory after VimEnter already found nothing",
+    function()
+      local detect_calls = 0
+      scanner._set_detect_fn(function()
+        detect_calls = detect_calls + 1
+        return nil
+      end)
+
+      impostor_pkg.setup({ auto_scan_on_startup = true })
+      vim.api.nvim_exec_autocmds("VimEnter", {})
+      assert.are.equal(2, detect_calls)
+
+      vim.api.nvim_exec_autocmds("DirChanged", {})
+      assert.are.equal(4, detect_calls)
+    end
+  )
+
+  it("does not scan on DirChanged when auto_scan_on_startup is disabled", function()
+    local detect_calls = 0
+    scanner._set_detect_fn(function()
+      detect_calls = detect_calls + 1
+      return nil
+    end)
+
+    impostor_pkg.setup({ auto_scan_on_startup = false })
+    vim.api.nvim_exec_autocmds("DirChanged", {})
+
+    assert.are.equal(0, detect_calls)
+  end)
+
   it("check() calls scanner.run and does not error when no project is found", function()
     scanner._set_detect_fn(function()
       return nil

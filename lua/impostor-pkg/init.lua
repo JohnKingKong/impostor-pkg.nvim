@@ -330,13 +330,36 @@ function M.setup(opts)
   end
 
   if resolved.auto_scan_on_startup then
+    local function startup_scan()
+      M.check({ force = false })
+      M.check_preinstall()
+    end
+
     vim.api.nvim_create_autocmd("VimEnter", {
       group = AUGROUP,
-      callback = function()
-        M.check({ force = false })
-        M.check_preinstall()
-      end,
+      callback = startup_scan,
       desc = "impostor-pkg: scan on startup",
+    })
+
+    -- impostor-pkg.nvim is `lazy = false` (loads near VimEnter), but a
+    -- workspace-per-tab plugin like floo-network.nvim is commonly
+    -- `event = "VeryLazy"`, which fires AFTER VimEnter -- so its session
+    -- restore (which :tcd's each fireplace to its real project directory)
+    -- hasn't run yet at VimEnter time. detect.find_project() falls back to
+    -- vim.fn.getcwd() (the global cwd), which at that point is still
+    -- whatever directory Neovim/Neovide was launched from -- not a JS
+    -- project -- so the VimEnter scan above silently finds nothing, with
+    -- no error or notification to say so. DirChanged fires on every :cd/
+    -- :tcd (including session restore's), so it catches the moment the cwd
+    -- actually becomes a real project; scanner.run's own lockfile-hash
+    -- dedup already makes repeat firings for an unchanged project a no-op,
+    -- so this is safe to leave registered for the whole session (not just
+    -- until the first successful scan), which also auto-scans a newly
+    -- entered project after switching fireplaces later.
+    vim.api.nvim_create_autocmd("DirChanged", {
+      group = AUGROUP,
+      callback = startup_scan,
+      desc = "impostor-pkg: catch the startup scan up once the real project directory is known",
     })
   end
 
