@@ -342,14 +342,12 @@ function M.setup(opts)
   end
 
   if resolved.auto_scan_on_startup then
-    local function startup_scan()
-      M.check({ force = false })
-      M.check_preinstall()
-    end
-
     vim.api.nvim_create_autocmd("VimEnter", {
       group = AUGROUP,
-      callback = startup_scan,
+      callback = function()
+        M.check({ force = false })
+        M.check_preinstall()
+      end,
       desc = "impostor-pkg: scan on startup",
     })
 
@@ -368,9 +366,22 @@ function M.setup(opts)
     -- so this is safe to leave registered for the whole session (not just
     -- until the first successful scan), which also auto-scans a newly
     -- entered project after switching fireplaces later.
+    --
+    -- Deliberately only M.check(), not M.check_preinstall(): "pending"
+    -- dependencies (declared in package.json but not yet in the lockfile)
+    -- has no dedup the way scanner.run's lockfile hash gives M.check() --
+    -- it's recomputed fresh every call, so a project with any lingering
+    -- uninstalled dep renotified "no issues found in N new dependencies"
+    -- on every single fireplace switch. check_preinstall's own purpose
+    -- (catch a dependency you just added before installing it) is already
+    -- served by its dedicated BufWritePost-on-package.json trigger below;
+    -- switching to a fireplace you were already in isn't "just added a
+    -- dependency".
     vim.api.nvim_create_autocmd("DirChanged", {
       group = AUGROUP,
-      callback = startup_scan,
+      callback = function()
+        M.check({ force = false })
+      end,
       desc = "impostor-pkg: catch the startup scan up once the real project directory is known",
     })
   end

@@ -117,7 +117,33 @@ describe("impostor-pkg.backends.audit", function()
   end)
 
   describe("parse pnpm", function()
-    it("extracts findings from the report.advisories shape", function()
+    it(
+      "extracts findings from the top-level advisories shape "
+        .. "(confirmed against a real pnpm audit --json run; regression for a parsing bug that "
+        .. "silently dropped every real pnpm project's findings and masqueraded as a crashed "
+        .. 'backend, "audit exited with code 1", since pnpm audit always exits non-zero when it '
+        .. "finds anything)",
+      function()
+        local stdout = vim.json.encode({
+          advisories = {
+            ["1119440"] = {
+              id = 1119440,
+              module_name = "serialize-javascript",
+              severity = "moderate",
+              title = "Serialize JavaScript has CPU Exhaustion Denial of Service",
+            },
+          },
+        })
+
+        local findings = audit.parse("pnpm", stdout)
+
+        assert.are.equal(1, #findings)
+        assert.are.equal("serialize-javascript", findings[1].name)
+        assert.are.equal("moderate", findings[1].severity)
+      end
+    )
+
+    it("falls back to the report.advisories shape, in case some pnpm version nests it that way", function()
       local stdout = vim.json.encode({
         auditReportVersion = 2,
         report = {
@@ -134,7 +160,7 @@ describe("impostor-pkg.backends.audit", function()
       assert.are.equal("critical", findings[1].severity)
     end)
 
-    it("returns an empty list when report.advisories is missing", function()
+    it("returns an empty list when neither advisories shape is present", function()
       assert.are.same({}, audit.parse("pnpm", vim.json.encode({ auditReportVersion = 2 })))
     end)
   end)

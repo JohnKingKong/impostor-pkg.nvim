@@ -80,14 +80,23 @@ local function parse_yarn(stdout)
   return findings
 end
 
--- pnpm: { auditReportVersion, report = { advisories = { [id] = { module_name, severity, title } } } }
+-- pnpm: { advisories = { [id] = { module_name, severity, title } } } -- confirmed against a
+-- real pnpm audit run; advisories sit at the top level, not nested under `report` as originally
+-- assumed here. That mismatch silently dropped every real pnpm project's vulnerabilities, and
+-- since `pnpm audit` exits non-zero whenever ANY vulnerability is found, the resulting empty
+-- findings list then looked exactly like a genuine backend failure ("audit exited with code 1")
+-- rather than a parsing bug. `report.advisories` is kept as a fallback in case some pnpm version
+-- genuinely nests it that way.
 local function parse_pnpm(stdout)
   local ok, decoded = pcall(vim.json.decode, stdout)
   if not ok or type(decoded) ~= "table" then
     return {}
   end
 
-  local advisories = type(decoded.report) == "table" and decoded.report.advisories or nil
+  local advisories = decoded.advisories
+  if type(advisories) ~= "table" then
+    advisories = type(decoded.report) == "table" and decoded.report.advisories or nil
+  end
   if type(advisories) ~= "table" then
     return {}
   end

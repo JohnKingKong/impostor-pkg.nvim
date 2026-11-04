@@ -68,10 +68,17 @@ describe("impostor-pkg.init", function()
 
       impostor_pkg.setup({ auto_scan_on_startup = true })
       vim.api.nvim_exec_autocmds("VimEnter", {})
+      -- VimEnter runs both check() and check_preinstall(), both routing
+      -- through scanner's shared detect_fn.
       assert.are.equal(2, detect_calls)
 
+      -- DirChanged only runs check() -- check_preinstall()'s "pending"
+      -- dependencies has no dedup the way check()'s lockfile-hash does, so
+      -- running it on every fireplace switch would renotify the same
+      -- lingering uninstalled deps every time, not just when they're
+      -- actually new.
       vim.api.nvim_exec_autocmds("DirChanged", {})
-      assert.are.equal(4, detect_calls)
+      assert.are.equal(3, detect_calls)
     end
   )
 
