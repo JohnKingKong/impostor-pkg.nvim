@@ -150,7 +150,7 @@ function M.show(findings, opts)
   width = math.min(width + 2, math.floor(vim.o.columns * 0.8))
   local height = math.min(#lines, math.floor(vim.o.lines * 0.6))
 
-  local win = vim.api.nvim_open_win(bufnr, true, {
+  local win_config = {
     relative = "editor",
     width = width,
     height = height,
@@ -159,7 +159,25 @@ function M.show(findings, opts)
     style = "minimal",
     border = "rounded",
     title = " impostor-pkg ",
-  })
+  }
+
+  -- A plain nvim_open_win(relative="editor") always anchors to whichever
+  -- tab is CURRENT right now -- fine for a synchronous, user-triggered
+  -- :ImpostorCheck, wrong for an async scan's result landing well after
+  -- the tab that triggered it was current (e.g. several fireplaces
+  -- restoring in quick succession). nvim_win_call runs the open_win call
+  -- with opts.tabid's own window as context WITHOUT switching the global
+  -- current tabpage, so the float lands in the right fireplace without
+  -- stealing focus from whatever the user is actually looking at.
+  local win
+  if opts.tabid and vim.api.nvim_tabpage_is_valid(opts.tabid) then
+    local anchor_win = vim.api.nvim_tabpage_list_wins(opts.tabid)[1]
+    vim.api.nvim_win_call(anchor_win, function()
+      win = vim.api.nvim_open_win(bufnr, true, win_config)
+    end)
+  else
+    win = vim.api.nvim_open_win(bufnr, true, win_config)
+  end
 
   vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = bufnr, silent = true })
   vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", { buffer = bufnr, silent = true })

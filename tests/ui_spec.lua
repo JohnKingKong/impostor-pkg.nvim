@@ -130,6 +130,32 @@ describe("impostor-pkg.ui", function()
       vim.api.nvim_win_close(floating_win, true)
     end)
 
+    it(
+      "opens the window in opts.tabid's tab without switching the global current tabpage "
+        .. "(regression: async scans all landed on whichever tab was current when they finished)",
+      function()
+        local origin_tab = vim.api.nvim_get_current_tabpage()
+        vim.cmd("tabnew")
+        local target_tab = vim.api.nvim_get_current_tabpage()
+        vim.cmd("tabnext") -- leave target_tab, simulating the user having moved on by scan-completion time
+        local viewing_tab = vim.api.nvim_get_current_tabpage()
+        assert.are_not.equal(target_tab, viewing_tab)
+
+        ui.show({
+          { name = "left-pad", version = "1.3.0", severity = "high", backend = "audit", reason = "..." },
+        }, { tabid = target_tab })
+
+        assert.are.equal(viewing_tab, vim.api.nvim_get_current_tabpage(), "must not steal the current tabpage")
+
+        local floating_win = vim.api.nvim_list_wins()[#vim.api.nvim_list_wins()]
+        assert.are.equal(target_tab, vim.api.nvim_win_get_tabpage(floating_win))
+
+        vim.api.nvim_win_close(floating_win, true)
+        vim.cmd("tabclose " .. vim.api.nvim_tabpage_get_number(target_tab))
+        pcall(vim.api.nvim_set_current_tabpage, origin_tab)
+      end
+    )
+
     it("does not register an 'i' keymap when on_ignore is not provided", function()
       ui.show({
         { name = "left-pad", version = "1.3.0", severity = "high", backend = "audit", reason = "..." },

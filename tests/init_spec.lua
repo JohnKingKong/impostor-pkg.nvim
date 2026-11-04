@@ -137,6 +137,60 @@ describe("impostor-pkg.init", function()
     vim.api.nvim_win_close(wins[#wins], true)
   end)
 
+  it(
+    "check()'s findings window opens in the tab that was current when check() was called, "
+      .. "not whichever tab is current once the async scan finishes "
+      .. "(regression: three fireplaces restoring at once all popped their window on top of "
+      .. "whichever one the user ended up viewing)",
+    function()
+      scanner._set_detect_fn(function()
+        return {
+          root = "/tmp/proj",
+          package_manager = "npm",
+          lockfile = "/tmp/proj/package-lock.json",
+          package_json = "/tmp/proj/package.json",
+        }
+      end)
+      scanner._set_system_fn(function(_cmd, _opts, on_exit)
+        on_exit({
+          code = 0,
+          stdout = vim.json.encode({
+            vulnerabilities = { ["left-pad"] = { name = "left-pad", severity = "high", via = {} } },
+          }),
+          stderr = "",
+        })
+      end)
+
+      local triggering_tab = vim.api.nvim_get_current_tabpage()
+      vim.cmd("tabnew")
+      local other_tab = vim.api.nvim_get_current_tabpage()
+      vim.api.nvim_set_current_tabpage(triggering_tab)
+
+      impostor_pkg.check()
+
+      -- Simulate the user moving on to a different fireplace before this
+      -- scan's async result actually lands.
+      vim.api.nvim_set_current_tabpage(other_tab)
+
+      -- nvim_list_wins() is scoped to the CURRENT tab only -- the floating
+      -- window is expected to land in triggering_tab, not other_tab (which
+      -- is current at this point), so it must be looked up via
+      -- triggering_tab's own window list, not the global one.
+      local wins_before = #vim.api.nvim_tabpage_list_wins(triggering_tab)
+      vim.wait(200, function()
+        return #vim.api.nvim_tabpage_list_wins(triggering_tab) > wins_before
+      end, 5)
+
+      local triggering_tab_wins = vim.api.nvim_tabpage_list_wins(triggering_tab)
+      local floating_win = triggering_tab_wins[#triggering_tab_wins]
+      assert.are.equal(triggering_tab, vim.api.nvim_win_get_tabpage(floating_win))
+      assert.are.equal(other_tab, vim.api.nvim_get_current_tabpage(), "must not steal focus from the viewed tab")
+
+      vim.api.nvim_win_close(floating_win, true)
+      vim.cmd("tabclose " .. vim.api.nvim_tabpage_get_number(triggering_tab))
+    end
+  )
+
   describe("check_preinstall", function()
     it("does not error when no project is found", function()
       scanner._set_detect_fn(function()

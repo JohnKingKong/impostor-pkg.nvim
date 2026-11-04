@@ -127,6 +127,18 @@ end
 function M.check(check_opts)
   check_opts = check_opts or {}
 
+  -- Captured synchronously here, before the scan's async backend call --
+  -- this is whichever tab was current at the moment the check was
+  -- triggered (e.g. a DirChanged firing as a specific fireplace's session
+  -- restore :tcd's into it), not whatever happens to be current once the
+  -- scan's result callback actually fires. Without this, opening several
+  -- fireplaces in quick succession (each firing its own DirChanged-
+  -- triggered check) made every scan's findings window pop up anchored to
+  -- whichever fireplace was current by the time ITS scan finished -- often
+  -- all landing on the same one, stacked on top of each other, regardless
+  -- of which project they were actually scanning.
+  local tabid = vim.api.nvim_get_current_tabpage()
+
   scanner.run({ force = check_opts.force }, function(result)
     if result.skipped then
       return
@@ -138,7 +150,7 @@ function M.check(check_opts)
     end
 
     ui.notify(result.findings)
-    ui.show(result.findings, { on_ignore = M.ignore_finding })
+    ui.show(result.findings, { on_ignore = M.ignore_finding, tabid = tabid })
 
     if result.project then
       diagnostics.apply(result.project.package_json, result.findings)
