@@ -11,6 +11,23 @@ local SEVERITY_HL = {
 
 local NAMESPACE = vim.api.nvim_create_namespace("impostor-pkg-ui")
 
+-- M.show() can fire repeatedly for the same fireplace with nobody having dismissed the
+-- previous findings window yet (e.g. a lockfile save re-triggers a scan while an earlier
+-- one is still sitting open) -- without tracking what's already open per tab and closing it
+-- first, each call stacked a brand new float on top of the last, so the window "popped up
+-- randomly" and a single `q` only closed the topmost of several, leaving the rest to dismiss
+-- one by one. Keyed by tabid (not a single global), since different fireplaces' findings
+-- windows are each anchored to their own tab and must stay independent of one another.
+local open_win_by_tabid = {}
+
+local function close_existing(tabid)
+  local existing = open_win_by_tabid[tabid]
+  if existing and vim.api.nvim_win_is_valid(existing) then
+    vim.api.nvim_win_close(existing, true)
+  end
+  open_win_by_tabid[tabid] = nil
+end
+
 local SEVERITY_RANK = {}
 for i, severity in ipairs(SEVERITY_ORDER) do
   SEVERITY_RANK[severity] = i
@@ -128,6 +145,10 @@ function M.show(findings, opts)
     return
   end
 
+  local effective_tabid = (opts.tabid and vim.api.nvim_tabpage_is_valid(opts.tabid)) and opts.tabid
+    or vim.api.nvim_get_current_tabpage()
+  close_existing(effective_tabid)
+
   sort_by_severity(findings)
 
   local lines = render_lines(findings)
@@ -178,6 +199,7 @@ function M.show(findings, opts)
   else
     win = vim.api.nvim_open_win(bufnr, true, win_config)
   end
+  open_win_by_tabid[effective_tabid] = win
 
   vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = bufnr, silent = true })
   vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", { buffer = bufnr, silent = true })

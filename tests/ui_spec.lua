@@ -156,6 +156,53 @@ describe("impostor-pkg.ui", function()
       end
     )
 
+    it(
+      "closes a previous findings window for the same tab instead of stacking a new one on top "
+        .. "(regression: a second scan firing while an earlier window was still open left it "
+        .. "orphaned behind the new one, so a single 'q' only closed the topmost and the rest "
+        .. "had to be dismissed one by one)",
+      function()
+        local win_count_before = #vim.api.nvim_list_wins()
+        ui.show({
+          { name = "left-pad", version = "1.3.0", severity = "high", backend = "audit", reason = "..." },
+        })
+        local first_win = vim.api.nvim_list_wins()[#vim.api.nvim_list_wins()]
+        assert.is_true(vim.api.nvim_win_is_valid(first_win))
+
+        ui.show({
+          { name = "colors", version = "1.4.0", severity = "critical", backend = "audit", reason = "..." },
+        })
+
+        assert.is_false(vim.api.nvim_win_is_valid(first_win), "the earlier window must be closed, not left stacked")
+        assert.are.equal(win_count_before + 1, #vim.api.nvim_list_wins())
+
+        local second_win = vim.api.nvim_list_wins()[#vim.api.nvim_list_wins()]
+        vim.api.nvim_win_close(second_win, true)
+      end
+    )
+
+    it("tracks findings windows independently per tab -- showing in one tab does not close another's", function()
+      local origin_tab = vim.api.nvim_get_current_tabpage()
+      ui.show({
+        { name = "left-pad", version = "1.3.0", severity = "high", backend = "audit", reason = "..." },
+      }, { tabid = origin_tab })
+      local first_win = vim.api.nvim_list_wins()[#vim.api.nvim_list_wins()]
+
+      vim.cmd("tabnew")
+      local other_tab = vim.api.nvim_get_current_tabpage()
+      ui.show({
+        { name = "colors", version = "1.4.0", severity = "critical", backend = "audit", reason = "..." },
+      }, { tabid = other_tab })
+
+      assert.is_true(vim.api.nvim_win_is_valid(first_win), "a different tab's findings window must survive")
+
+      local second_win = vim.api.nvim_list_wins()[#vim.api.nvim_list_wins()]
+      vim.api.nvim_win_close(second_win, true)
+      vim.api.nvim_win_close(first_win, true)
+      vim.cmd("tabclose " .. vim.api.nvim_tabpage_get_number(other_tab))
+      pcall(vim.api.nvim_set_current_tabpage, origin_tab)
+    end)
+
     it("does not register an 'i' keymap when on_ignore is not provided", function()
       ui.show({
         { name = "left-pad", version = "1.3.0", severity = "high", backend = "audit", reason = "..." },
